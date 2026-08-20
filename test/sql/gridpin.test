@@ -1,0 +1,35 @@
+# name: test/sql/gridpin.test
+# description: gridpin_ext scalar functions — load, forward, reverse, empty-result contract
+# group: [gridpin]
+
+require gridpin_ext
+
+# a query before gridpin_load must error, not crash
+statement error
+SELECT gridpin_geocode('10 rue de rivoli paris');
+----
+call gridpin_load
+
+# load a sheet (path provided by the CI harness; here the France build)
+query I
+SELECT gridpin_load('data/france.bin') LIKE 'index loaded%';
+----
+true
+
+# forward geocoding returns a JSON object
+query I
+SELECT json_valid(gridpin_geocode('10 rue de rivoli paris'));
+----
+true
+
+# reverse geocoding returns a JSON object
+query I
+SELECT json_valid(gridpin_reverse(48.8584, 2.2945));
+----
+true
+
+# no match -> '{}' exactly (documented empty-result contract)
+query I
+SELECT gridpin_geocode('xyzzy plugh nonexistent street 999');
+----
+{}

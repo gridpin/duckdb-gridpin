@@ -1,0 +1,17 @@
+[package]
+name = "gridpin_ext"
+version = "0.0.1"
+edition = "2021"
+license = "Apache-2.0"
+publish = false
+
+[lib]
+crate-type = ["cdylib"]
+
+[dependencies]
+duckdb = { version = "~1.10503.1", features = ["loadable-extension", "vscalar"] }
+gridpin = { git = "https://github.com/gridpin/gridpin", rev = "c4148770bbb54e49174a4fd08b08a5285a6bcb77" }
+serde_json = "1"
+
+[profile.release]
+lto = "thin"
