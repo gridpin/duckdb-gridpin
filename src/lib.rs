@@ -133,12 +133,12 @@ struct LoadFn;
 impl VScalar for LoadFn {
     type State = Shared;
 
-    unsafe fn invoke(
+    fn invoke(
         state: &Self::State,
         input: &mut DataChunkHandle,
         output: &mut dyn WritableVector,
     ) -> std::result::Result<(), Box<dyn Error>> {
-        let paths = read_strings(input, 0);
+        let paths = unsafe { read_strings(input, 0) };
         no_panic("gridpin_load", || {
             let Some(last) = single_path("gridpin_load", &paths)? else {
                 // all NULL: nothing to load, NULL out for every row
@@ -178,7 +178,7 @@ impl VScalar for LoadFn {
                 indexes.addr_path = Some(last.clone());
             }
             drop(indexes);
-            load_statuses(&paths, &last, output);
+            unsafe { load_statuses(&paths, &last, output) };
             Ok(())
         })
     }
@@ -199,12 +199,12 @@ struct LoadPoiFn;
 impl VScalar for LoadPoiFn {
     type State = Shared;
 
-    unsafe fn invoke(
+    fn invoke(
         state: &Self::State,
         input: &mut DataChunkHandle,
         output: &mut dyn WritableVector,
     ) -> std::result::Result<(), Box<dyn Error>> {
-        let paths = read_strings(input, 0);
+        let paths = unsafe { read_strings(input, 0) };
         no_panic("gridpin_load_poi", || {
             let Some(last) = single_path("gridpin_load_poi", &paths)? else {
                 let mut out = output.flat_vector();
@@ -235,7 +235,7 @@ impl VScalar for LoadPoiFn {
                 indexes.poi_path = Some(last.clone());
             }
             drop(indexes);
-            load_statuses(&paths, &last, output);
+            unsafe { load_statuses(&paths, &last, output) };
             Ok(())
         })
     }
@@ -256,7 +256,7 @@ struct ResetFn;
 impl VScalar for ResetFn {
     type State = Shared;
 
-    unsafe fn invoke(
+    fn invoke(
         state: &Self::State,
         input: &mut DataChunkHandle,
         output: &mut dyn WritableVector,
@@ -301,12 +301,12 @@ struct GeocodeFn;
 impl VScalar for GeocodeFn {
     type State = Shared;
 
-    unsafe fn invoke(
+    fn invoke(
         state: &Self::State,
         input: &mut DataChunkHandle,
         output: &mut dyn WritableVector,
     ) -> std::result::Result<(), Box<dyn Error>> {
-        let queries = read_strings(input, 0);
+        let queries = unsafe { read_strings(input, 0) };
         no_panic("gridpin_geocode", || {
             let guard = state.read();
             let idx = guard
@@ -346,7 +346,7 @@ struct ReverseFn;
 impl VScalar for ReverseFn {
     type State = Shared;
 
-    unsafe fn invoke(
+    fn invoke(
         state: &Self::State,
         input: &mut DataChunkHandle,
         output: &mut dyn WritableVector,
@@ -354,8 +354,12 @@ impl VScalar for ReverseFn {
         let n = input.len();
         let vlat = input.flat_vector(0);
         let vlon = input.flat_vector(1);
-        let lats = vlat.as_slice_with_len::<f64>(n).to_vec();
-        let lons = vlon.as_slice_with_len::<f64>(n).to_vec();
+        let (lats, lons) = unsafe {
+            (
+                vlat.as_slice_with_len::<f64>(n).to_vec(),
+                vlon.as_slice_with_len::<f64>(n).to_vec(),
+            )
+        };
         let null_lat: Vec<bool> = (0..n).map(|i| vlat.row_is_null(i as u64)).collect();
         let null_lon: Vec<bool> = (0..n).map(|i| vlon.row_is_null(i as u64)).collect();
         no_panic("gridpin_reverse", || {

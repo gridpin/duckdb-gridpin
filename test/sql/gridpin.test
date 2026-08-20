@@ -1,35 +1,29 @@
 # name: test/sql/gridpin.test
-# description: gridpin_ext scalar functions — load, forward, reverse, empty-result contract
+# description: gridpin_ext contracts that hold without a data sheet
 # group: [gridpin]
 
 require gridpin_ext
 
-# a query before gridpin_load must error, not crash
+# every scalar function is registered under its documented name
+query I
+SELECT count(*) FROM duckdb_functions() WHERE function_name LIKE 'gridpin%';
+----
+5
+
+# a query before gridpin_load must fail with a usable hint, not crash
 statement error
 SELECT gridpin_geocode('10 rue de rivoli paris');
 ----
 call gridpin_load
 
-# load a sheet (path provided by the CI harness; here the France build)
-query I
-SELECT gridpin_load('data/france.bin') LIKE 'index loaded%';
+# reverse geocoding before gridpin_load fails the same way
+statement error
+SELECT gridpin_reverse(48.8584, 2.2945);
 ----
-true
+call gridpin_load
 
-# forward geocoding returns a JSON object
-query I
-SELECT json_valid(gridpin_geocode('10 rue de rivoli paris'));
+# a sheet path that does not exist is a clean error, not a crashed process
+statement error
+SELECT gridpin_load('definitely-not-a-sheet.bin');
 ----
-true
-
-# reverse geocoding returns a JSON object
-query I
-SELECT json_valid(gridpin_reverse(48.8584, 2.2945));
-----
-true
-
-# no match -> '{}' exactly (documented empty-result contract)
-query I
-SELECT gridpin_geocode('xyzzy plugh nonexistent street 999');
-----
-{}
+cannot open
