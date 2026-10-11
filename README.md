@@ -16,8 +16,8 @@ repository](https://github.com/gridpin/gridpin/releases).
 
 ## What this repository is
 
-This repository holds **only the extension crate**, laid out the way
-[extension-template-rs](https://github.com/duckdb/extension-template-rs) expects, because the
+This repository holds **the C++ registration layer and Rust static library**, laid out the way
+[extension-template](https://github.com/duckdb/extension-template) expects, because the
 DuckDB community-extensions catalogue builds an extension from the root of its repository.
 
 It is generated from the GridPin monorepo and is not edited by hand. The geocoding engine

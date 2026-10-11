@@ -1,16 +1,15 @@
 [package]
 name = "gridpin_ext"
-version = "0.1.0"
+version = "0.4.0"
 edition = "2021"
 license = "Apache-2.0"
 publish = false
 
 [lib]
-crate-type = ["cdylib"]
+crate-type = ["staticlib"]
 
 [dependencies]
-duckdb = { version = "~1.10505.0", features = ["loadable-extension", "vscalar"] }
-gridpin = { git = "https://github.com/gridpin/gridpin", rev = "c4148770bbb54e49174a4fd08b08a5285a6bcb77" }
+gridpin = { git = "https://github.com/gridpin/gridpin", rev = "8b8b05125c86cddf2a9efa8932c2f2197ed33b07" }
 serde_json = "1"
 
 [profile.release]

@@ -1,0 +1,6 @@
+file(STRINGS "${CMAKE_CURRENT_LIST_DIR}/Cargo.toml" GRIDPIN_VERSION_LINE REGEX "^version =")
+string(REGEX REPLACE "^version = \"([^\"]+)\".*" "\\1" GRIDPIN_VERSION "${GRIDPIN_VERSION_LINE}")
+duckdb_extension_load(gridpin_ext
+  SOURCE_DIR "${CMAKE_CURRENT_LIST_DIR}"
+  DONT_LINK
+  EXTENSION_VERSION "v${GRIDPIN_VERSION}")
