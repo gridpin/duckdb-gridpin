@@ -26,3 +26,17 @@ jobs:
       # mirror pipeline 38216592299 (2026-10-12) failed there while MSVC windows_amd64 is proven by the release CI;
       # the catalogue's Rust-backed extensions exclude it too (ANSWERS §114).
       exclude_archs: 'wasm_mvp;wasm_eh;wasm_threads;linux_amd64_musl;windows_amd64_mingw'
+
+  duckdb-next-build:
+    # DuckDB 2.0 ships 2026-10-21. The community catalogue builds `ref_next` against v2.0-cyanoptera with
+    # ci-tools main and vcpkg 2026.06.24 (build_next.yml, require_ref_next: true); this job repeats exactly
+    # that build, so the 2.0 leg is green here before `ref_next` is proposed to the catalogue.
+    name: Build against DuckDB 2.0 (catalogue ref_next)
+    uses: duckdb/extension-ci-tools/.github/workflows/_extension_distribution.yml@v1.5-variegata
+    with:
+      duckdb_version: v2.0-cyanoptera
+      ci_tools_version: main
+      vcpkg_commit: cd61e1e26a038e82d6550a3ebbe0fbbfe7da78e3
+      extension_name: gridpin_ext
+      extra_toolchains: rust;python3
+      exclude_archs: 'wasm_mvp;wasm_eh;wasm_threads;linux_amd64_musl;windows_amd64_mingw'
