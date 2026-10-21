@@ -30,7 +30,7 @@ namespace duckdb {
 // DuckDB 2.0 made the bound function private, result buffers read-only by default and dropped the
 // count argument of ToUnifiedFormat; 1.5.x has none of the new accessors, and 2.0 snapshots adopted
 // them at different commits. Each accessor is therefore detected on its own at compile time, so one
-// source tree builds the catalog `ref` (1.5.x) and `ref_next` (2.0).
+// source tree builds both catalog lines: `variegata` (1.5.x) and `ref` (2.0).
 template <class E, class = void> struct GridpinHasFunctionAccessor : std::false_type {};
 template <class E>
 struct GridpinHasFunctionAccessor<E, std::void_t<decltype(std::declval<const E &>().Function())>> : std::true_type {};
