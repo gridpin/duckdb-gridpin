@@ -10,16 +10,19 @@ tools run it through DuckDB's scripts/ci/run_tests.py ("ran tests: N passed, M s
 --fail-require-skip, which the workflow that calls them cannot pass.
 
 The workflow runs it after both build jobs: python3 .github/check_tests_ran.py
-(GH_TOKEN, GITHUB_REPOSITORY, GITHUB_RUN_ID and GITHUB_RUN_ATTEMPT come from the runner).
+(GH_TOKEN, GITHUB_API_URL, GITHUB_REPOSITORY, GITHUB_RUN_ID and GITHUB_RUN_ATTEMPT come from the runner).
+It talks to the REST API itself rather than through the gh CLI: in run 39733253086 (2026-10-22) the CLI failed to
+fetch every job log and its captured error was lost, so every failure here prints the HTTP status and body.
 """
 from __future__ import annotations
 
 import json
 import os
 import re
-import subprocess
 import sys
 import time
+import urllib.error
+import urllib.request
 
 # Only native builds run tests: the extension CI tools cross-build linux_arm64 and osx_amd64 and skip their tests.
 TESTED_ARCHS = ("linux_amd64", "osx_arm64", "windows_amd64")
@@ -31,6 +34,7 @@ ASSERTIONS = re.compile(r"(\d+) assertions? in (\d+) test cases?")
 ANSI = re.compile(r"\x1b\[[0-9;]*m")
 # Both runners list the reasons of skipped tests as "require <extension>: <count>".
 REQUIRE_SKIP = re.compile(r"^(?:\S+Z )?(require \w+: \d+)$", re.M)
+SUMMARY = re.compile(r"All tests passed \([^)]*\)|ran tests: \d+ passed, (?:\d+ failed, )?\d+ skipped")
 
 
 def verdict(log: str) -> str | None:
@@ -78,31 +82,90 @@ def tested_jobs(jobs: list[dict]) -> dict[tuple[str, str], dict]:
     return picked
 
 
-def gh_api(path: str) -> str:
-    return subprocess.run(["gh", "api", path], check=True, capture_output=True, text=True).stdout
+# A job's log can take a moment to become available after the job completes.
+LOG_ATTEMPTS = 6
+LOG_PAUSE = 20
+
+
+class LogUnavailable(Exception):
+    pass
+
+
+class _KeepRedirect(urllib.request.HTTPRedirectHandler):
+    def redirect_request(self, req, fp, code, msg, headers, newurl):
+        return None  # the redirect comes back as an HTTPError, and the caller follows it without the token
+
+
+def _request(url: str, token: str | None) -> urllib.request.Request:
+    headers = {"User-Agent": "gridpin-check-tests-ran", "X-GitHub-Api-Version": "2022-11-28"}
+    if token:
+        headers["Authorization"] = f"Bearer {token}"
+    return urllib.request.Request(url, headers=headers)
+
+
+def _read(response) -> str:
+    return response.read().decode("utf-8", "replace")
+
+
+def _describe(error: OSError) -> str:
+    if isinstance(error, urllib.error.HTTPError):
+        return f"HTTP {error.code} {' '.join(_read(error).split())[:200]}".strip()
+    return f"{type(error).__name__}: {error}"
+
+
+def github(path: str) -> str:
+    request = _request(f"{os.environ.get('GITHUB_API_URL', 'https://api.github.com')}/{path}", os.environ["GH_TOKEN"])
+    with urllib.request.build_opener(_KeepRedirect).open(request, timeout=60) as response:
+        return _read(response)
+
+
+def fetch_log(repo: str, job_id: int) -> str:
+    """The log endpoint redirects to a signed URL on a storage host: it takes no token, and the token stays with
+    the API."""
+    try:
+        return github(f"repos/{repo}/actions/jobs/{job_id}/logs")
+    except urllib.error.HTTPError as error:
+        location = error.headers.get("Location")
+        if error.code not in (301, 302, 303, 307, 308) or not location:
+            raise
+    with urllib.request.urlopen(_request(location, None), timeout=60) as response:
+        return _read(response)
 
 
 def job_log(repo: str, job_id: int) -> str:
-    # A job's log can take a moment to become available after the job completes.
-    for attempt in range(6):
+    errors = []
+    for attempt in range(LOG_ATTEMPTS):
+        if attempt:
+            time.sleep(LOG_PAUSE)
         try:
-            return gh_api(f"repos/{repo}/actions/jobs/{job_id}/logs")
-        except subprocess.CalledProcessError:
-            if attempt == 5:
-                raise
-            time.sleep(20)
-    raise AssertionError("unreachable")
+            return fetch_log(repo, job_id)
+        except OSError as error:  # URLError and HTTPError included
+            errors.append(_describe(error))
+    raise LogUnavailable("; ".join(dict.fromkeys(errors)))
 
 
 def main() -> int:
     repo, run = os.environ["GITHUB_REPOSITORY"], os.environ["GITHUB_RUN_ID"]
     attempt = os.environ.get("GITHUB_RUN_ATTEMPT", "1")
-    jobs = json.loads(gh_api(f"repos/{repo}/actions/runs/{run}/attempts/{attempt}/jobs?per_page=100"))["jobs"]
+    try:
+        listing = github(f"repos/{repo}/actions/runs/{run}/attempts/{attempt}/jobs?per_page=100")
+    except OSError as error:
+        print(f"::error title=SQL tests::cannot list the jobs of run {run}: {_describe(error)}")
+        return 1
     failures = []
-    for (line, arch), job in sorted(tested_jobs(jobs).items()):
-        reason = verdict(job_log(repo, job["id"]))
+    for (line, arch), job in sorted(tested_jobs(json.loads(listing)["jobs"]).items()):
+        log = ""
+        try:
+            log = job_log(repo, job["id"])
+            reason = verdict(log)
+        except LogUnavailable as error:
+            reason = f"log not available: {error}"
         print(f"{line} {arch}: {'tests ran' if reason is None else reason} ({job['name']})")
-        if reason is not None:
+        # Annotations can be read without signing in, unlike job logs: the outcome of every job is public.
+        if reason is None:
+            print(f"::notice title=SQL tests::{line} {arch}: {SUMMARY.findall(ANSI.sub('', log))[-1]}")
+        else:
+            print(f"::error title=SQL tests::{line} {arch}: {reason}")
             failures.append(f"{line} {arch}")
     if failures:
         print(f"SQL tests did not really run on: {', '.join(failures)}", file=sys.stderr)
