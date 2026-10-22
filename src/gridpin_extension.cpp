@@ -1,5 +1,5 @@
 #define DUCKDB_EXTENSION_MAIN
-#include "gridpin_extension.hpp"
+#include "gridpin_ext_extension.hpp"
 #include "duckdb/function/scalar_function.hpp"
 #include "duckdb/parser/parsed_data/create_scalar_function_info.hpp"
 #include "duckdb/planner/expression/bound_function_expression.hpp"
@@ -179,7 +179,8 @@ static void Register(ExtensionLoader &loader) {
         "SELECT gridpin_reverse(43.7391, 7.4266)");
 }
 
-void GridpinExtension::Load(ExtensionLoader &loader) { Register(loader); }
+void GridpinExtExtension::Load(ExtensionLoader &loader) { Register(loader); }
+std::string GridpinExtExtension::Version() const { return GRIDPIN_EXTENSION_VERSION; }
 } // namespace duckdb
 
 extern "C" {

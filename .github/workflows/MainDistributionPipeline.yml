@@ -54,3 +54,23 @@ jobs:
       exclude_archs: 'wasm_mvp;wasm_eh;wasm_threads;linux_amd64_musl;windows_amd64_mingw'
       opt_in_archs: 'osx_amd64'
       reduced_ci_mode: disabled
+
+  sql-tests-ran:
+    # sqllogictest skips a whole test file when `require gridpin_ext` cannot load the extension, and the step that
+    # ran it stays green (run 39611788181, 2026-10-21: "All tests were skipped" on every platform, the extension was
+    # built but not linked). This job reads the logs of the jobs that run tests and fails unless each passed real
+    # assertions: linux_amd64, osx_arm64 and windows_amd64 of both lines.
+    name: SQL tests really ran
+    needs: [duckdb-stable-build, duckdb-ref-build]
+    runs-on: ubuntu-latest
+    permissions:
+      actions: read
+      contents: read
+    steps:
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+        with:
+          sparse-checkout: .github
+      - name: Check the test output of every tested platform
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: python3 .github/check_tests_ran.py
