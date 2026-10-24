@@ -1,6 +1,6 @@
 [package]
 name = "gridpin_ext"
-version = "0.4.0"
+version = "0.5.0"
 edition = "2021"
 license = "Apache-2.0"
 publish = false
@@ -9,7 +9,7 @@ publish = false
 crate-type = ["staticlib"]
 
 [dependencies]
-gridpin = { git = "https://github.com/gridpin/gridpin", rev = "8b8b05125c86cddf2a9efa8932c2f2197ed33b07" }
+gridpin = { git = "https://github.com/gridpin/gridpin", rev = "c853b3fb36b480ad49d0311ac7b620b4fad33a08" }
 serde_json = "1"
 
 [profile.release]
