@@ -247,8 +247,8 @@ dependencies = [
 
 [[package]]
 name = "gridpin"
-version = "0.5.0"
-source = "git+https://github.com/gridpin/gridpin?rev=c853b3fb36b480ad49d0311ac7b620b4fad33a08#c853b3fb36b480ad49d0311ac7b620b4fad33a08"
+version = "0.6.0"
+source = "git+https://github.com/gridpin/gridpin?rev=054e39a4d7dd6211039e563704f5cb4bd1dbc55c#054e39a4d7dd6211039e563704f5cb4bd1dbc55c"
 dependencies = [
  "anyhow",
  "blake2",
@@ -265,7 +265,7 @@ dependencies = [
 
 [[package]]
 name = "gridpin_ext"
-version = "0.5.0"
+version = "0.6.0"
 dependencies = [
  "gridpin",
  "serde_json",
