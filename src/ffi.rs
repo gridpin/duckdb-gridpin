@@ -1,4 +1,6 @@
 //! Narrow batch ABI. Rust owns database state and response storage.
+//! The declarations for C callers are in `include/gridpin.h`; `tests/c_abi.rs` compiles a C program
+//! against that header and this library.
 use super::{geocode, load, no_panic, reset, reverse, Indexes, Shared};
 use std::panic::{catch_unwind, AssertUnwindSafe};
 use std::sync::{Arc, RwLock};
@@ -16,7 +18,7 @@ pub struct Response {
 }
 
 #[no_mangle]
-pub(crate) extern "C" fn gridpin_state_new() -> *mut Shared {
+pub extern "C" fn gridpin_state_new() -> *mut Shared {
     catch_unwind(|| Box::into_raw(Box::new(Shared(Arc::new(RwLock::new(Indexes::default()))))))
         .unwrap_or(std::ptr::null_mut())
 }
@@ -24,7 +26,7 @@ pub(crate) extern "C" fn gridpin_state_new() -> *mut Shared {
 /// # Safety
 /// State is a live, uniquely owned pointer returned by gridpin_state_new, or null.
 #[no_mangle]
-pub(crate) unsafe extern "C" fn gridpin_state_drop(state: *mut Shared) {
+pub unsafe extern "C" fn gridpin_state_drop(state: *mut Shared) {
     let _ = catch_unwind(AssertUnwindSafe(|| {
         if !state.is_null() {
             drop(Box::from_raw(state));
@@ -36,9 +38,55 @@ pub(crate) unsafe extern "C" fn gridpin_state_drop(state: *mut Shared) {
 /// State is live; each non-null input array holds len initialized entries for the call.
 /// Text buffers hold their declared byte length and are borrowed only until return.
 #[no_mangle]
-pub(crate) unsafe extern "C" fn gridpin_invoke(
+pub unsafe extern "C" fn gridpin_invoke(
     state: *const Shared,
     operation: u32,
+    texts: *const Text,
+    lats: *const f64,
+    lons: *const f64,
+    nulls: *const u8,
+    len: usize,
+) -> *mut Response {
+    invoke(state, operation, None, texts, lats, lons, nulls, len)
+}
+
+/// Version of this interface. Bumped when a declaration in `include/gridpin.h` changes meaning.
+pub const GRIDPIN_ABI_VERSION: u32 = 1;
+
+#[no_mangle]
+pub extern "C" fn gridpin_abi_version() -> u32 {
+    GRIDPIN_ABI_VERSION
+}
+
+/// As gridpin_invoke, but geocode and reverse return a JSON array of up to `k` hits per row.
+///
+/// # Safety
+/// Same contract as gridpin_invoke.
+#[no_mangle]
+pub unsafe extern "C" fn gridpin_invoke_k(
+    state: *const Shared,
+    operation: u32,
+    k: usize,
+    texts: *const Text,
+    lats: *const f64,
+    lons: *const f64,
+    nulls: *const u8,
+    len: usize,
+) -> *mut Response {
+    if k == 0 {
+        return Box::into_raw(Box::new(Response {
+            rows: Vec::new(),
+            error: Some("gridpin: k must be at least 1".into()),
+        }));
+    }
+    invoke(state, operation, Some(k), texts, lats, lons, nulls, len)
+}
+
+#[allow(clippy::too_many_arguments)]
+unsafe fn invoke(
+    state: *const Shared,
+    operation: u32,
+    k: Option<usize>,
     texts: *const Text,
     lats: *const f64,
     lons: *const f64,
@@ -73,7 +121,7 @@ pub(crate) unsafe extern "C" fn gridpin_invoke(
                         }
                     })
                     .collect::<Vec<_>>();
-                reverse(shared, &points)?
+                reverse(shared, &points, k)?
             } else {
                 if len > 0 && texts.is_null() {
                     return Err("missing text buffer".into());
@@ -93,7 +141,7 @@ pub(crate) unsafe extern "C" fn gridpin_invoke(
                     .collect::<Result<Vec<_>, Box<dyn std::error::Error>>>()?;
                 match operation {
                     0 | 1 => load(shared, &strings, operation == 1)?,
-                    3 => geocode(shared, &strings)?,
+                    3 => geocode(shared, &strings, k)?,
                     _ => return Err("unknown GridPin operation".into()),
                 }
             };
@@ -111,7 +159,7 @@ pub(crate) unsafe extern "C" fn gridpin_invoke(
 /// # Safety
 /// Response is live and output is writable. Returned bytes are borrowed until response_drop.
 #[no_mangle]
-pub(crate) unsafe extern "C" fn gridpin_response_get(
+pub unsafe extern "C" fn gridpin_response_get(
     response: *const Response,
     row: usize,
     output: *mut Text,
@@ -148,7 +196,7 @@ pub(crate) unsafe extern "C" fn gridpin_response_get(
 /// # Safety
 /// Response is uniquely owned and returned by gridpin_invoke, or null.
 #[no_mangle]
-pub(crate) unsafe extern "C" fn gridpin_response_drop(response: *mut Response) {
+pub unsafe extern "C" fn gridpin_response_drop(response: *mut Response) {
     let _ = catch_unwind(AssertUnwindSafe(|| {
         if !response.is_null() {
             drop(Box::from_raw(response));
