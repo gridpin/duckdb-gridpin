@@ -147,18 +147,49 @@ fn reset(shared: &Shared, len: usize) -> Result<Vec<Option<String>>, Box<dyn Err
     Ok(vec![Some("index unloaded".into()); len.max(1)])
 }
 
+/// Extra answer fields (`gridpin batch --with`). They come with the engine of the next release: the
+/// DuckDB extension and the R package build these sources against the released engine, which has no
+/// `extras`, so only the crate that turns the feature on (gridpin-ffi itself, for Node) carries them.
+#[cfg(feature = "extras")]
+type Extras = gridpin::extras::Extras;
+#[cfg(not(feature = "extras"))]
+pub struct Extras;
+
+#[cfg(feature = "extras")]
+fn extras_of(
+    spec: Option<&str>,
+    idx: &gridpin::query::Index,
+) -> Result<Option<Extras>, Box<dyn Error>> {
+    Ok(gridpin::extras::Extras::new(spec, idx)?)
+}
+
+#[cfg(not(feature = "extras"))]
+fn extras_of(
+    spec: Option<&str>,
+    _idx: &gridpin::query::Index,
+) -> Result<Option<Extras>, Box<dyn Error>> {
+    match spec.map(str::trim) {
+        None | Some("") => Ok(None),
+        Some(_) => {
+            Err("extra answer fields need a GridPin engine built with them (0.9 or later)".into())
+        }
+    }
+}
+
 /// `k = None` is the SQL form: the best hit as one JSON object, `{}` when nothing matches.
 /// `k = Some(n)` returns a JSON array of up to `n` hits for every row (`[]` when nothing matches).
 fn geocode(
     shared: &Shared,
     queries: &[Option<String>],
     k: Option<usize>,
+    with: Option<&str>,
 ) -> Result<Vec<Option<String>>, Box<dyn Error>> {
     let guard = shared.read();
     let idx = guard
         .addr
         .as_ref()
         .ok_or("call gridpin_load('<path>.bin') first")?;
+    let extras = extras_of(with, idx)?;
     queries
         .iter()
         .map(|q| {
@@ -166,7 +197,12 @@ fn geocode(
                 .map(|q| {
                     let hits =
                         gridpin::query::query_cascade(idx, guard.poi.as_ref(), q, k.unwrap_or(1));
-                    answer(&hits, k)
+                    #[cfg(feature = "extras")]
+                    return gridpin::extras::for_query(q, || {
+                        answer(&hits, k, extras.as_ref().map(|e| (e, idx)))
+                    });
+                    #[cfg(not(feature = "extras"))]
+                    answer(&hits, k, extras.as_ref().map(|e| (e, idx)))
                 })
                 .transpose()
         })
@@ -177,26 +213,32 @@ fn reverse(
     shared: &Shared,
     coordinates: &[Option<(f64, f64)>],
     k: Option<usize>,
+    with: Option<&str>,
 ) -> Result<Vec<Option<String>>, Box<dyn Error>> {
     let guard = shared.read();
     let idx = guard
         .addr
         .as_ref()
         .ok_or("call gridpin_load('<path>.bin') first")?;
+    let extras = extras_of(with, idx)?;
     coordinates
         .iter()
         .map(|point| {
             point
                 .map(|(lat, lon)| {
                     let hits = idx.try_reverse(lat, lon, k.unwrap_or(1))?;
-                    answer(&hits, k)
+                    answer(&hits, k, extras.as_ref().map(|e| (e, idx)))
                 })
                 .transpose()
         })
         .collect()
 }
 
-fn answer(hits: &[gridpin::query::Hit], k: Option<usize>) -> Result<String, Box<dyn Error>> {
+fn answer(
+    hits: &[gridpin::query::Hit],
+    k: Option<usize>,
+    extras: Option<(&Extras, &gridpin::query::Index)>,
+) -> Result<String, Box<dyn Error>> {
     // Every hit carries `weak`: the engine's own verdict that an answer needs a check before use
     // (`hit_is_weak`, the rule of the POI cascade). Set here, not left to the engine's serializer,
     // because the R package builds this crate against the released engine from crates.io.
@@ -204,7 +246,13 @@ fn answer(hits: &[gridpin::query::Hit], k: Option<usize>) -> Result<String, Box<
         let mut row = serde_json::to_value(h)?;
         if let Some(fields) = row.as_object_mut() {
             fields.insert("weak".into(), gridpin::query::hit_is_weak(h).into());
+            #[cfg(feature = "extras")]
+            if let Some((e, idx)) = extras {
+                fields.insert("extras".into(), serde_json::Value::Object(e.of(h, idx)));
+            }
         }
+        #[cfg(not(feature = "extras"))]
+        let _ = extras;
         Ok(row)
     };
     match k {
@@ -250,13 +298,17 @@ mod tests {
             hit("city", 0.05, vec!["place_exact"]),
             hit("house", 0.9, vec!["street_exact"]),
         ];
-        let plain: serde_json::Value = serde_json::from_str(&answer(&hits, None).unwrap()).unwrap();
+        let plain: serde_json::Value =
+            serde_json::from_str(&answer(&hits, None, None).unwrap()).unwrap();
         assert_eq!(plain["weak"], true);
         let listed: serde_json::Value =
-            serde_json::from_str(&answer(&hits, Some(2)).unwrap()).unwrap();
+            serde_json::from_str(&answer(&hits, Some(2), None).unwrap()).unwrap();
         assert_eq!(listed[0]["weak"], true);
         assert_eq!(listed[1]["weak"], false);
-        assert_eq!(answer(&[], None).unwrap(), "{}");
+        assert_eq!(plain["match_level"], "Locality");
+        assert_eq!(listed[1]["match_level"], "PointAddress");
+        assert_eq!(listed[1]["match_status"], "M");
+        assert_eq!(answer(&[], None, None).unwrap(), "{}");
     }
 
     #[test]

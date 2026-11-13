@@ -47,11 +47,12 @@ pub unsafe extern "C" fn gridpin_invoke(
     nulls: *const u8,
     len: usize,
 ) -> *mut Response {
-    invoke(state, operation, None, texts, lats, lons, nulls, len)
+    invoke(state, operation, None, None, texts, lats, lons, nulls, len)
 }
 
-/// Version of this interface. Bumped when a declaration in `include/gridpin.h` changes meaning.
-pub const GRIDPIN_ABI_VERSION: u32 = 1;
+/// Version of this interface. Bumped when a declaration in `include/gridpin.h` changes meaning or a
+/// function is added (2: gridpin_invoke_with).
+pub const GRIDPIN_ABI_VERSION: u32 = 2;
 
 #[no_mangle]
 pub extern "C" fn gridpin_abi_version() -> u32 {
@@ -79,7 +80,68 @@ pub unsafe extern "C" fn gridpin_invoke_k(
             error: Some("gridpin: k must be at least 1".into()),
         }));
     }
-    invoke(state, operation, Some(k), texts, lats, lons, nulls, len)
+    invoke(
+        state,
+        operation,
+        Some(k),
+        None,
+        texts,
+        lats,
+        lons,
+        nulls,
+        len,
+    )
+}
+
+/// As gridpin_invoke_k, with extra answer fields: `with` is the spec of `gridpin batch --with`
+/// ("h3,geohash,placekey,codes,street_point,links,provenance"), each hit gets an `extras` object. A null or
+/// empty `with` is gridpin_invoke_k. An engine built without them answers with an error, never silently.
+///
+/// # Safety
+/// Same contract as gridpin_invoke; `with` is null or borrowed like a text input.
+#[allow(clippy::too_many_arguments)]
+#[no_mangle]
+pub unsafe extern "C" fn gridpin_invoke_with(
+    state: *const Shared,
+    operation: u32,
+    k: usize,
+    with: *const Text,
+    texts: *const Text,
+    lats: *const f64,
+    lons: *const f64,
+    nulls: *const u8,
+    len: usize,
+) -> *mut Response {
+    if k == 0 {
+        return Box::into_raw(Box::new(Response {
+            rows: Vec::new(),
+            error: Some("gridpin: k must be at least 1".into()),
+        }));
+    }
+    let spec = match with.as_ref() {
+        None => None,
+        Some(t) if t.is_null != 0 || t.data.is_null() => None,
+        Some(t) => match std::str::from_utf8(std::slice::from_raw_parts(t.data, t.len)) {
+            Ok(s) => Some(s.to_string()),
+            Err(_) => {
+                return Box::into_raw(Box::new(Response {
+                    rows: Vec::new(),
+                    error: Some("gridpin: `with` is not UTF-8".into()),
+                }))
+            }
+        },
+    };
+    invoke(
+        state,
+        operation,
+        Some(k),
+        spec.as_deref(),
+        texts,
+        lats,
+        lons,
+        nulls,
+        len,
+    )
 }
 
 #[allow(clippy::too_many_arguments)]
@@ -87,6 +149,7 @@ unsafe fn invoke(
     state: *const Shared,
     operation: u32,
     k: Option<usize>,
+    with: Option<&str>,
     texts: *const Text,
     lats: *const f64,
     lons: *const f64,
@@ -121,7 +184,7 @@ unsafe fn invoke(
                         }
                     })
                     .collect::<Vec<_>>();
-                reverse(shared, &points, k)?
+                reverse(shared, &points, k, with)?
             } else {
                 if len > 0 && texts.is_null() {
                     return Err("missing text buffer".into());
@@ -141,7 +204,7 @@ unsafe fn invoke(
                     .collect::<Result<Vec<_>, Box<dyn std::error::Error>>>()?;
                 match operation {
                     0 | 1 => load(shared, &strings, operation == 1)?,
-                    3 => geocode(shared, &strings, k)?,
+                    3 => geocode(shared, &strings, k, with)?,
                     _ => return Err("unknown GridPin operation".into()),
                 }
             };
