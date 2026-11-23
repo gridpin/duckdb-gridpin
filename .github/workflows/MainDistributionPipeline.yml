@@ -12,8 +12,8 @@ concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}-${{ github.head_ref || '' }}-${{ github.base_ref || '' }}-${{ github.ref != 'refs/heads/main' || github.sha }}
   cancel-in-progress: true
 
-# Since 2026-10-20 the community catalogue builds two lines from one descriptor: `repo.ref` against DuckDB v2.0.0
-# (the default) and `repo.variegata` against v1.5.6. Both jobs below pass the descriptor's platform fields
+# Since 2026-10-20 the community catalogue builds two lines from one descriptor: `repo.ref` against the 2.0 line
+# (the default; v2.0.1 since 2026-11-23) and `repo.variegata` against v1.5.6. Both jobs below pass the descriptor's platform fields
 # (excluded_platforms, opt_in_platforms) and build the full matrix the catalogue deploys after a merge.
 jobs:
   duckdb-stable-build:
@@ -35,18 +35,18 @@ jobs:
       reduced_ci_mode: disabled
 
   duckdb-ref-build:
-    # The catalogue's default build (build.yml, 2026-10-20): _extension_distribution.yml@v2.0-cyanoptera with
-    # ci-tools v2.0-cyanoptera, DuckDB v2.0.0 checked out at commit d54cbbe3 (no v2.0.0 tag yet; the catalogue
-    # passes the commit until it re-adds duckdb_tag) and vcpkg 2026.06.24. This job repeats exactly that build,
-    # so the 2.0 leg is green here before a new `ref` is proposed to the catalogue.
+    # The catalogue's default build (build.yml 7228ae2e, 2026-11-23): _extension_distribution.yml@v2.0-cyanoptera
+    # with ci-tools v2.0-cyanoptera, DuckDB v2.0.1 checked out at commit 8d78114e (the v2.0.1 tag; the catalogue
+    # passes the commit and sets duckdb_tag only on manual runs) and vcpkg 2026.06.24. This job repeats exactly that
+    # build, so the 2.0 leg is green here before a new `ref` is proposed to the catalogue.
     # Two differences from 1.5 tools: osx_amd64 builds only when opted in (ci-tools e9e8edcc, 2026-10-15), and
     # reduced_ci_mode `auto` drops every platform except linux_amd64 and windows_amd64 on pull_request events —
     # the catalogue deploys the full matrix, so this job disables the reduction.
     name: Build against DuckDB 2.0 (catalogue ref)
     uses: duckdb/extension-ci-tools/.github/workflows/_extension_distribution.yml@v2.0-cyanoptera
     with:
-      duckdb_version: v2.0.0
-      duckdb_commit: d54cbbe3df17e8e5ce68312f483b4155836112aa
+      duckdb_version: v2.0.1
+      duckdb_commit: 8d78114e90a53823803660bf821f6073ac87da8c
       ci_tools_version: v2.0-cyanoptera
       vcpkg_commit: cd61e1e26a038e82d6550a3ebbe0fbbfe7da78e3
       extension_name: gridpin_ext
